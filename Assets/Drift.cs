@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using UnityEngine;
+using UnityEngine.UI;
 
 // Every Interval:
 // - Choose either an Attractor or the Repellor
@@ -9,7 +10,7 @@ public class Drift : MonoBehaviour
 {
 	public Rigidbody LookTarget;
 	public Transform Stimulus;
-	public Transform CameraTransform;
+	public Camera Cam;
 
 	public Transform[] Distractions;
 
@@ -20,15 +21,48 @@ public class Drift : MonoBehaviour
 	public Range TimeBetweenPanic;
 	public Range PanicDuration;
 
+	public Image barMask;
+	public Image barBorder;
+
+	public float maxHeight;
+	public float originalWidth;
+
+	public float progress;
+	public float lookDistance = 2f;
+	public float SDU = 0;
+	public float SDUFall = 0.2f;
+	public float SDUBuild = 2.0f;
+	public float progressThreshold = 0.8f;
+	public float progressBuild = 0.1f;
+
+	public Image reticule;
+
 	public Vector3 ToGoal => (Stimulus.position - LookTarget.position).normalized;
 
 	// Always look at the look target;
 	public void LateUpdate() {
-		CameraTransform.LookAt(LookTarget.transform);
+		Cam.transform.LookAt(LookTarget.transform);
+
+		if(Vector3.Distance(Stimulus.position, LookTarget.position) < lookDistance) {
+			SDU = Mathf.Lerp(SDU, 1.0f, Time.deltaTime * SDUBuild);
+
+			if (SDU > progressThreshold) {
+				progress += Time.deltaTime * progressBuild; 
+			}
+			reticule.color = new Color(0.3f, 0.3f, 1f, 0.5f);
+		} else {
+			SDU = Mathf.Clamp01(SDU - Time.deltaTime * SDUFall);
+			reticule.color = new Color(1f, 1f, 1f, 0.5f);
+		}
+
+		barMask.GetComponent<RectTransform>().sizeDelta = new Vector2(originalWidth, maxHeight * SDU * (1.0f - progress));
+		barBorder.GetComponent<RectTransform>().sizeDelta = new Vector2(originalWidth, maxHeight * (1.0f - progress));
 	}
 
 	// Start is called before the first frame update
 	void Start() {
+		maxHeight = barMask.GetComponent<RectTransform>().sizeDelta.y;
+		originalWidth = barMask.GetComponent<RectTransform>().sizeDelta.x;
 		ChooseNextDistraction();
 	}
 
@@ -41,14 +75,12 @@ public class Drift : MonoBehaviour
 		yield return new WaitForSeconds(TimeBetweenPanic.Sample);
 		Transform distractionTarget = Distractions[Random.Range(0, Distractions.Length)];
 		// Find the target using ray intersection with the Z plane.
-		Ray ray = new Ray(CameraTransform.position, (-CameraTransform.position + distractionTarget.position).normalized);
-		Plane zPlane = new Plane(Vector3.forward, Vector3.zero);
-		float dist = 0;
+		Ray ray = new Ray(Cam.transform.position, (-Cam.transform.position + distractionTarget.position).normalized);
 		Vector3 targetPosition = Vector3.zero;
-		if (zPlane.Raycast(ray, out dist)) {
+		if (new Plane(Vector3.forward, Vector3.zero).Raycast(ray, out float dist)) {
 			targetPosition = ray.GetPoint(dist);
-//			GameObject debugSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-//			debugSphere.transform.position = targetPosition;
+			//			GameObject debugSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+			//			debugSphere.transform.position = targetPosition;
 		}
 
 		float duration = PanicDuration.Sample;
@@ -97,17 +129,25 @@ public class Drift : MonoBehaviour
 		if (Input.GetButtonDown("Fire1")) {
 			// Charge.
 			chargeTime = 0;
-			Debug.Log("Starting Charge...");
+			//Debug.Log("Starting Charge...");
 		} else if (Input.GetButtonUp("Fire1")) {
 			// Release.
-			Debug.Log("Fire! " + chargeTime);
+			//Debug.Log("Fire! " + chargeTime);
 			float ratio = Mathf.Clamp01(chargeTime / ControlChargeTime);
 
+			Ray clickRay = Cam.ScreenPointToRay(Input.mousePosition);
+			Vector3 targetPosition = Vector3.zero;
+			if (new Plane(Vector3.forward, Vector3.zero).Raycast(clickRay, out float dist)) {
+				targetPosition = clickRay.GetPoint(dist);
 
-			LookTarget.AddForce(ToGoal * ControlImpulse.Lerp(ratio), ForceMode.Impulse);
+				//GameObject debugSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+				//debugSphere.transform.position = targetPosition;
+			}
+
+			LookTarget.AddForce((-LookTarget.position + targetPosition).normalized * ControlImpulse.Lerp(ratio), ForceMode.Impulse);
 		} else if (Input.GetButton("Fire1")) {
 			chargeTime += Time.deltaTime;
-			Debug.Log("Charging... " + chargeTime);
+			//Debug.Log("Charging... " + chargeTime);
 		}
 	}
 }
